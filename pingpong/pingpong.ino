@@ -5,6 +5,12 @@
 #define IR_CMD_1 16718055 //1
 #define IR_CMD_2 16724175 //2
 
+#define IR_CMD_INC 16754775
+#define IR_CMD_DEC 16748655
+#define IR_CMD_MODE 16736925
+#define IR_CMD_FW 16761405
+#define IR_CMD_BACK 16712445
+
 /*
 *Shooter Motor control TODO 
 */
@@ -19,15 +25,18 @@ int BUCKET_ENABLE_PIN = 7; //Motor enable pin
 int BUCKET_SM1_PIN = 11; // These 1 control the step size: HH-1/8 HL-1/4 LH-1/2 LL-1
 int BUCKET_SM2_PIN = 12;
 
-float _speed = 70;
-bool _isStopped=false;
+float _rotationDelay = 150;
+bool _isStopped = false;
+int _stepSize = 1 | 2;
+int _rotationCount = 1700;
+int _cadence = 10;
 
 /*
 * Remote Control
 */
-int rcPin=9; // define input pin on Arduino
-IRrecv _irReceiver(rcPin);
-decode_results results;
+int RC_PIN=9; // define input pin on Arduino
+IRrecv _irReceiver(RC_PIN);
+decode_results _rcResults;
 
 /*
 * Lifecycle
@@ -43,8 +52,7 @@ void setup(){
   pinMode(BUCKET_SM2_PIN, OUTPUT);
 
   //set step to 1/8 - for some reason low low is not working
-  digitalWrite(BUCKET_SM1_PIN, HIGH); 
-  digitalWrite(BUCKET_SM2_PIN, HIGH);
+ toggleStepSize(HIGH, HIGH);
  
   Serial.begin(9600);
 
@@ -54,20 +62,20 @@ void setup(){
 }
  
 void loop(){
-  if (_irReceiver.decode(&results)){
+  if (_irReceiver.decode(&_rcResults)){
     Serial.print("IR Command received: ");
-    Serial.println(results.value, DEC);
+    Serial.println(_rcResults.value, DEC);
       
-    processCommands(results.value);
+    processCommands(_rcResults.value);
     _irReceiver.resume(); // Receive the next value
   }
 
   if (_isStopped){
     return;
   }
-  
-  rotate(1700, _speed); 
-  delay(200);
+
+  rotateBucket(_rotationCount, _rotationDelay); 
+  delay(_cadence);
   
 }
 
@@ -81,13 +89,37 @@ void processCommands(int cmdVal){
       _isStopped = !_isStopped;
       toggleBucketMotor();
       break;
-    case IR_CMD_1:
-      _speed += 10;
-      Serial.println(_speed);
+    
+    //Speed handling  
+    case IR_CMD_INC:
+      _rotationDelay -= 10; //increase in speed = decrease in delay
+      Serial.println(_rotationDelay);
       break;
-    case IR_CMD_2:
-      _speed -= 10;
-      Serial.println(_speed);
+    case IR_CMD_DEC:
+      _rotationDelay += 10;
+      Serial.println(_rotationDelay);
+      break;
+    
+    //Step count
+    case IR_CMD_FW:
+      _rotationCount += 100; 
+      Serial.println(_rotationCount);
+      break;
+    case IR_CMD_BACK:
+      _rotationCount -= 100; 
+      Serial.println(_rotationCount);
+      break;
+      
+    //Step size  
+    case IR_CMD_MODE:
+      _stepSize = (_stepSize + 1) % 4;
+
+      int sm1 = (_stepSize & 1) != 0 ? LOW : HIGH;
+      int sm2 = (_stepSize & 2) != 0 ? LOW : HIGH;
+      
+      toggleStepSize(sm1, sm2);
+      Serial.print("Step size is: ");
+      Serial.println(_stepSize);
       break;
   }
 }
@@ -96,6 +128,11 @@ void processCommands(int cmdVal){
 * Stepper motor methods
 *
 */
+void toggleStepSize(int sm1, int sm2){
+    digitalWrite(BUCKET_SM1_PIN, sm1); 
+    digitalWrite(BUCKET_SM2_PIN, sm2);
+}
+
 void toggleBucketMotor() {
   if (_isStopped){
     digitalWrite(BUCKET_ENABLE_PIN, HIGH);
@@ -107,11 +144,9 @@ void toggleBucketMotor() {
   Serial.println(_isStopped);
 }
  
-void rotate(int steps, float speed){
+void rotateBucket(int steps, float speed){
   int direction = steps > 0 ? HIGH : LOW;
- 
-  speed = speed; //Calculating speed
-  steps = abs(steps); //Stores the absolute value of the content in 'steps' back into the 'steps' variable
+   steps = abs(steps); 
  
   //digitalWrite(BUCKET_DIR_PIN, direction); 
  
